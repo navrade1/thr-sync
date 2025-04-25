@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include "process.h"
 
-// Global array to store processes (from your original code)
+// Global array to store processes
 Process processes[256];
 int process_count = 0;
 
