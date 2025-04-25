@@ -3,23 +3,67 @@
 #include <string.h>
 #include <pthread.h>
 #include <unistd.h>
-#include "process.h"  // header file from prev project
+#include "process.h"
 
-// Global array to store processes
+// Global array to store processes (from your original code)
 Process processes[256];
 int process_count = 0;
 
-// Thread function to simulate a process
-void* process_thread(void* arg) {
+// Readers-Writers synchronization variables
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  // Protects reader_count
+pthread_mutex_t write_lock = PTHREAD_MUTEX_INITIALIZER;  // Exclusive writer lock
+int reader_count = 0;  // Number of active readers
+
+// Thread function to simulate a reader process
+void* reader_process(void* arg) {
     Process* proc = (Process*)arg;
     
-    printf("Process %d (Thread ID: %lu) starting execution\n", proc->pid, (unsigned long)pthread_self());
+    printf("Reader Process %d (PID: %d) starting\n", proc->pid, (int)pthread_self());
     
-    // Simulate the CPU burst time with sleep
-    printf("Process %d running for %d time units\n", proc->pid, proc->burst_time);
+    // Entry section for reader
+    pthread_mutex_lock(&mutex);
+    reader_count++;
+    if (reader_count == 1) {
+        // First reader acquires write_lock to prevent writers
+        pthread_mutex_lock(&write_lock);
+    }
+    pthread_mutex_unlock(&mutex);
+    
+    // Critical section - reading happens here
+    printf("Reader Process %d is reading (Burst time: %d)\n", proc->pid, proc->burst_time);
     sleep(proc->burst_time);  // Simulate the CPU burst time
     
-    printf("Process %d completed execution\n", proc->pid);
+    // Exit section for reader
+    pthread_mutex_lock(&mutex);
+    reader_count--;
+    if (reader_count == 0) {
+        // Last reader releases write_lock
+        pthread_mutex_unlock(&write_lock);
+    }
+    pthread_mutex_unlock(&mutex);
+    
+    printf("Reader Process %d finished reading\n", proc->pid);
+    
+    return NULL;
+}
+
+// Thread function to simulate a writer process
+void* writer_process(void* arg) {
+    Process* proc = (Process*)arg;
+    
+    printf("Writer Process %d (PID: %d) starting\n", proc->pid, (int)pthread_self());
+    
+    // Entry section for writer - acquire exclusive lock
+    pthread_mutex_lock(&write_lock);
+    
+    // Critical section - writing happens here
+    printf("Writer Process %d is writing (Burst time: %d)\n", proc->pid, proc->burst_time);
+    sleep(proc->burst_time);  // Simulate the CPU burst time
+    
+    // Exit section for writer - release exclusive lock
+    pthread_mutex_unlock(&write_lock);
+    
+    printf("Writer Process %d finished writing\n", proc->pid);
     
     return NULL;
 }
@@ -31,32 +75,41 @@ void simulate_processes_with_threads() {
 
     printf("\nStarting process simulation with threads...\n");
     
+    // We'll assume even PIDs are readers and odd PIDs are writers for demonstration
     for (i = 0; i < process_count; i++) {
         // Sleep for arrival time to simulate process arrivals
-        printf("Waiting for process %d to arrive (in %d time units)...\n", 
-               processes[i].pid, processes[i].arrival_time);
         sleep(processes[i].arrival_time);
         
-        // Create thread for this process
-        if (pthread_create(&threads[i], NULL, process_thread, &processes[i]) != 0) {
-            perror("Failed to create thread");
-            exit(EXIT_FAILURE);
+        // Create thread based on process type (reader or writer)
+        if (processes[i].pid % 2 == 0) {
+            // Even PID - reader process
+            if (pthread_create(&threads[i], NULL, reader_process, &processes[i]) != 0) {
+                perror("Failed to create reader thread");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            // Odd PID - writer process
+            if (pthread_create(&threads[i], NULL, writer_process, &processes[i]) != 0) {
+                perror("Failed to create writer thread");
+                exit(EXIT_FAILURE);
+            }
         }
         
-        printf("Created thread for process %d\n", processes[i].pid);
+        printf("Created thread for process %d (PID: %d)\n", 
+               processes[i].pid, i);
     }
     
     // Wait for all threads to complete
     for (i = 0; i < process_count; i++) {
         pthread_join(threads[i], NULL);
-        printf("Process %d thread joined\n", processes[i].pid);
     }
     
     printf("All processes completed\n");
 }
 
-// Function to parse the process file
+// Your original parse_process_file function
 void parse_process_file(const char *filename) {
+    // ... (keep your original function)
     FILE *processfile = fopen(filename, "r");
     if (processfile == NULL) {
         perror("Error opening file");
@@ -109,7 +162,7 @@ int main(int argc, char *argv[]) {
     // Parse the process file
     parse_process_file(argv[1]);
     
-    // Simulate processes with threads
+    // Simulate processes with threads and readers-writers synchronization
     simulate_processes_with_threads();
 
     return 0;
